@@ -1,0 +1,48 @@
+/* ---------- logo placement ---------- */
+.logo-img { display: block; width: auto; max-width: 100%; }
+/* Header: a white logo tab hangs below the bar and overlaps the slider/hero by about half its height. */
+:root { --logo-h: 162px; --bar-h: 88px; }
+.topbar { min-height: var(--bar-h); padding-top: 0; padding-bottom: 0; align-items: center; }
+.brand { align-self: flex-start; position: relative; z-index: 30; background: #fff; padding: 10px 22px 12px; border-radius: 0 0 18px 18px;
+  border: 2px solid var(--gold); border-top: 0; box-shadow: 0 10px 24px rgba(42, 0, 48, .28);
+  margin-bottom: calc(var(--bar-h) - var(--logo-h) - 22px); }
+.topbar .logo-img { height: var(--logo-h); }
+/* content that sits directly under the header must clear the logo tab */
+main > .card, main > .narrow, main > .flow, main > .wide, main > p { margin-top: 130px; }
+.hero { padding-top: 140px; }
+.slider { min-height: 560px; }
+.side-logo { display: block; background: #fff; border-radius: 12px; padding: 10px 14px; border: 2px solid var(--gold); text-align: center; }
+.side-brand { align-items: stretch; }
+.side-brand > span:last-child { text-align: center; }
+@media (max-width: 960px) {
+  :root { --logo-h: 95px; --bar-h: 64px; }
+  .brand { padding: 6px 12px 8px; }
+  main > .card, main > .narrow, main > .flow, main > .wide, main > p { margin-top: 85px; }
+  .hero { padding-top: 95px; }
+  .slider { min-height: 480px; }
+}
+.slide-text .primary { background: var(--gold); color: var(--brand-darker); }
+.slide-text .primary:hover { background: var(--gold-light); }
+
+/* keep menu labels on one line now that the logo tab takes more room */
+.menu a, .menu button { white-space: nowrap; padding: 10px 8px; }
+.navwrap { gap: 12px; }
+.menu { gap: 0; }
+.account { gap: 10px; }
+@media (max-width: 1180px) and (min-width: 961px) { .menu a, .menu button { padding: 10px 6px; font-size: 13px; } a.call { padding: 8px 10px; font-size: 13px; } }
+
+/* ---------- sticky header ---------- */
+.topbar { position: sticky; top: 0; z-index: 50; transition: min-height .2s ease; }
+.brand { flex: 0 0 auto; }
+.logo-img { max-width: none; }
+.topbar .logo-img { transition: height .2s ease; }
+.brand { transition: margin-bottom .2s ease, padding .2s ease; }
+.topbar.scrolled { --logo-h: 81px; --bar-h: 84px; box-shadow: 0 4px 16px rgba(42, 0, 48, .18); }
+.topbar.scrolled .brand { padding: 6px 14px; border-radius: 0 0 12px 12px; box-shadow: none; }
+@media (max-width: 960px) { .topbar.scrolled { --logo-h: 62px; --bar-h: 66px; } .topbar.scrolled .brand { padding: 5px 10px; } }
+@media (prefers-reduced-motion: reduce) { .topbar, .topbar .logo-img, .brand { transition: none; } }
+
+/* hide while scrolling down, return on scroll up */
+.topbar { transition: min-height .2s ease, transform .25s ease; }
+.topbar.hide { transform: translateY(calc(-100% - 24px)); }
+@media (prefers-reduced-motion: reduce) { .topbar { transition: none; } }
