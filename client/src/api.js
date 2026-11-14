@@ -16,7 +16,10 @@ export async function api(path, { method = 'GET', body } = {}) {
     body: body ? JSON.stringify(body) : undefined,
   });
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.error || 'Something went wrong');
+  if (!res.ok) {
+    // keep the per-field messages / error code so forms can show them beside the fields
+    throw Object.assign(new Error(data.error || 'Something went wrong'), { status: res.status, fields: data.fields || {}, code: data.code, data });
+  }
   // admin edits can add, rename or remove screens, so the admin sidebar refreshes its screen list
   if (method !== 'GET' && path.startsWith('/admin')) window.dispatchEvent(new Event('admin-nav-refresh'));
   return data;

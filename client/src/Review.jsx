@@ -61,7 +61,15 @@ function EstimateTools({ data, planName, onPrint }) {
     setBusy(false);
   };
   const save = () => run(async () => { await api('/estimates', { method: 'POST' }); await load(); }, T('est.msg_saved'));
-  const email = (e) => { e.preventDefault(); run(() => api('/estimates/email', { method: 'POST', body: { to } }), T('est.msg_sent', { email: to })); };
+  const [toErr, setToErr] = useState('');
+  const email = (e) => {
+    e.preventDefault();
+    const addr = to.trim();
+    const v = !addr ? 'Enter an email address' : !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(addr) ? 'Enter a valid email address' : '';
+    setToErr(v);
+    if (v) return;
+    run(() => api('/estimates/email', { method: 'POST', body: { to: addr } }).catch((ex) => { if (ex.fields?.to) setToErr(ex.fields.to); throw ex; }), T('est.msg_sent', { email: addr }));
+  };
   const printSaved = async (id) => { try { onPrint(await api(`/estimates/${id}`)); } catch (e) { setMsg({ type: 'err', text: e.message }); } };
   const del = async (id) => { if (!confirm(T('est.confirm_delete'))) return; await api(`/estimates/${id}`, { method: 'DELETE' }); load(); };
 
@@ -74,9 +82,10 @@ function EstimateTools({ data, planName, onPrint }) {
         <button type="button" className="secondary" onClick={() => onPrint({ groups: data.groups, total: data.total })}>{T('est.print')}</button>
       </div>
       {emailOpen && (
-        <form className="est-email" onSubmit={email}>
+        <form className="est-email" onSubmit={email} noValidate>
           <label htmlFor="est-to">{T('est.send_to')}</label>
-          <div><input id="est-to" type="email" required value={to} onChange={(e) => setTo(e.target.value)} placeholder="name@example.com" /><button className="primary" disabled={busy}>{T('est.send')}</button></div>
+          <div><input id="est-to" type="email" value={to} onChange={(e) => { setTo(e.target.value); setToErr(''); }} placeholder="name@example.com" maxLength={254} {...(toErr ? { 'aria-invalid': true, 'aria-describedby': 'est-to-err' } : {})} /><button className="primary" disabled={busy}>{T('est.send')}</button></div>
+          {toErr && <span id="est-to-err" className="field-err" role="alert">{toErr}</span>}
         </form>
       )}
       {msg.text && <p className={msg.type === 'ok' ? 'est-ok' : 'error'} role={msg.type === 'ok' ? 'status' : 'alert'}>{msg.text}</p>}

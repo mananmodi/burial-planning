@@ -5,6 +5,7 @@ import { AuthProvider, useAuth } from './auth.jsx';
 import { api } from './api.js';
 import { SiteProvider, useSite, tel, useT } from './site.jsx';
 import Login from './pages/Login.jsx';
+import VerifyEmail from './pages/VerifyEmail.jsx';
 import Flow from './pages/Flow.jsx';
 import Page from './pages/Page.jsx';
 import AdminQuestions from './pages/AdminQuestions.jsx';
@@ -279,6 +280,7 @@ createRoot(document.getElementById('root')).render(
           <Routes>
             <Route path="/" element={<Page slug="home" />} />
             <Route path="/login" element={<Login />} />
+            <Route path="/verify-email" element={<VerifyEmail />} />
             <Route path="/plans" element={<Guard><Plans /></Guard>} />
             <Route path="/plan/:planId" element={<Guard fallback={<PlanSkeleton />}><PlanRoute /></Guard>} />
             <Route path="/plan" element={<Navigate to="/plans" replace />} />

@@ -221,6 +221,11 @@ export async function init() {
       await q(`ALTER TABLE ${table} ADD COLUMN ${col} ${ddl}`);
   };
   await addCol('users', 'profile', 'LONGTEXT NULL');
+  // Email verification. Existing accounts (and the seeded admin) default to verified; sign-ups insert 0 explicitly.
+  await addCol('users', 'email_verified', 'TINYINT(1) NOT NULL DEFAULT 1');
+  await addCol('users', 'verify_token_hash', 'VARCHAR(64) NULL');
+  await addCol('users', 'verify_expires', 'DATETIME NULL');
+  await addCol('users', 'verify_sent_at', 'DATETIME NULL');
   await addCol('pages', 'hero_image', "VARCHAR(500) NOT NULL DEFAULT ''");
   if (!(await one("SELECT 1 AS x FROM settings WHERE `key`='seeded_iconic_pages'"))) {
     // Give the still-plain seeded inner pages icons and pictures; pages the admin already styled are left alone.

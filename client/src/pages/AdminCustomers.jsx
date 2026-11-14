@@ -22,16 +22,27 @@ export default function AdminCustomers() {
     return (users || []).filter((u) => !t || u.name.toLowerCase().includes(t) || u.email.toLowerCase().includes(t));
   }, [users, search]);
 
-  const set = (k) => (e) => setEdit({ ...edit, [k]: e.target.value });
+  const [errors, setErrors] = useState({});
+  const set = (k) => (e) => { setEdit({ ...edit, [k]: e.target.value }); if (errors[k]) setErrors({ ...errors, [k]: undefined }); };
+  const err = (k) => (errors[k] ? <span className="field-err" role="alert">{errors[k]}</span> : null);
+  const bad = (k) => (errors[k] ? { 'aria-invalid': true } : {});
   const save = async (e) => {
     e.preventDefault();
     setError(''); setMsg('');
+    const v = {};
+    if (!edit.name.trim()) v.name = 'Name is required';
+    if (!edit.email.trim()) v.email = 'Email is required';
+    else if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(edit.email.trim())) v.email = 'Enter a valid email address';
+    if (!edit.id && !edit.password) v.password = 'Password is required';
+    else if (edit.password && edit.password.length < 6) v.password = 'Password must be at least 6 characters';
+    setErrors(v);
+    if (Object.keys(v).length) { setError('Please correct the highlighted fields.'); setTimeout(() => document.querySelector('form [aria-invalid]')?.focus(), 0); return; }
     try {
       await api(edit.id ? `/admin/customers/${edit.id}` : '/admin/customers', { method: edit.id ? 'PUT' : 'POST', body: edit });
       setMsg(edit.id ? 'Saved.' : 'Customer added.');
       setEdit(null);
       load();
-    } catch (err) { setError(err.message); }
+    } catch (ex) { setErrors(ex.fields || {}); setError(ex.message); }
   };
   const remove = async (u) => {
     if (!confirm(`Delete ${u.name} (${u.email})? Their ${u.plans} plan(s) and everything chosen in them will be removed. This cannot be undone.`)) return;
@@ -53,11 +64,11 @@ export default function AdminCustomers() {
       {msg && <p className="muted" role="status">{msg}</p>}
 
       {edit && (
-        <form className="card" onSubmit={save}>
+        <form className="card" onSubmit={save} noValidate>
           <h2>{edit.id ? `Edit ${edit.name || 'customer'}` : 'New customer'}</h2>
           <div className="row">
-            <label>Name<input value={edit.name} onChange={set('name')} required /></label>
-            <label>Email<input type="email" value={edit.email} onChange={set('email')} required /></label>
+            <label>Name<input value={edit.name} onChange={set('name')} maxLength={255} {...bad('name')} />{err('name')}</label>
+            <label>Email<input type="email" value={edit.email} onChange={set('email')} maxLength={254} {...bad('email')} />{err('email')}</label>
             <label>Role
               <select value={edit.role} onChange={set('role')}>
                 <option value="user">Customer</option>
@@ -66,10 +77,10 @@ export default function AdminCustomers() {
             </label>
           </div>
           <label>{edit.id ? 'New password (leave blank to keep the current one)' : 'Password (at least 6 characters)'}
-            <input type="text" autoComplete="new-password" value={edit.password} onChange={set('password')} minLength={edit.password ? 6 : undefined} required={!edit.id} />
+            <input type="text" autoComplete="new-password" value={edit.password} onChange={set('password')} {...bad('password')} />{err('password')}
           </label>
           <div className="actions">
-            <button type="button" className="secondary" onClick={() => setEdit(null)}>Cancel</button>
+            <button type="button" className="secondary" onClick={() => { setEdit(null); setErrors({}); setError(''); }}>Cancel</button>
             <button className="primary">{edit.id ? 'Save changes' : 'Add customer'}</button>
           </div>
         </form>

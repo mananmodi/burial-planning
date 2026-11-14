@@ -16,8 +16,10 @@ export default function Slider() {
   const [paused, setPaused] = useState(false);
   const reduced = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
 
+  // Slides no longer advance by themselves; visitors use the arrows or dots.
+  const AUTO_ADVANCE = false;
   useEffect(() => {
-    if (paused || reduced || slides.length < 2) return;
+    if (!AUTO_ADVANCE || paused || reduced || slides.length < 2) return;
     const t = setInterval(() => setI((n) => (n + 1) % slides.length), 6000);
     return () => clearInterval(t);
   }, [paused, reduced, slides.length]);

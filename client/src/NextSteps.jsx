@@ -19,7 +19,10 @@ export default function NextSteps({ planName }) {
   }, []);
 
   const paid = payments.filter((p) => p.status === 'paid');
-  const set = (k) => (e) => setForm({ ...form, [k]: e.target.value });
+  const [errors, setErrors] = useState({});
+  const set = (k) => (e) => { setForm({ ...form, [k]: e.target.value }); if (errors[k]) setErrors({ ...errors, [k]: undefined }); };
+  const err = (k) => (errors[k] ? <span id={`cf-${k}`} className="field-err" role="alert">{errors[k]}</span> : null);
+  const bad = (k) => (errors[k] ? { 'aria-invalid': true, 'aria-describedby': `cf-${k}` } : {});
 
   const checkout = async () => {
     setBusy(true); setError('');
@@ -28,9 +31,16 @@ export default function NextSteps({ planName }) {
   };
   const schedule = async (e) => {
     e.preventDefault();
+    const v = {};
+    const digits = form.phone.replace(/\D/g, '');
+    if (!form.phone.trim()) v.phone = 'Enter a phone number we can reach you on';
+    else if (digits.length < 7 || digits.length > 15) v.phone = 'Enter a valid phone number';
+    if (form.notes.length > 2000) v.notes = 'Notes are too long (2000 characters maximum)';
+    setErrors(v);
+    if (Object.keys(v).length) { setError(''); setTimeout(() => document.querySelector('.consult-form [aria-invalid]')?.focus(), 0); return; }
     setBusy(true); setError('');
     try { await api('/consultations', { method: 'POST', body: form }); setSent(true); window.scrollTo({ top: 0, behavior: 'smooth' }); }
-    catch (err) { setError(err.message); }
+    catch (ex) { setErrors(ex.fields || {}); setError(Object.keys(ex.fields || {}).length ? '' : ex.message); }
     setBusy(false);
   };
 
@@ -68,10 +78,10 @@ export default function NextSteps({ planName }) {
       {error && !open && <p className="error" role="alert">{error}</p>}
 
       {open && (
-        <form className="card consult-form" onSubmit={schedule}>
+        <form className="card consult-form" onSubmit={schedule} noValidate>
           <h3>{T('next.form_title')}</h3>
           <div className="row">
-            <label>{T('next.form_phone')}<input type="tel" required value={form.phone} onChange={set('phone')} autoComplete="tel" placeholder={T('next.form_phone_ph')} /></label>
+            <label>{T('next.form_phone')}<input type="tel" value={form.phone} onChange={set('phone')} autoComplete="tel" maxLength={60} placeholder={T('next.form_phone_ph')} {...bad('phone')} />{err('phone')}</label>
             <label>{T('next.form_method')}
               <select value={form.contact_method} onChange={set('contact_method')}>
                 <option value="phone">{T('next.form_m_phone')}</option>
@@ -81,7 +91,7 @@ export default function NextSteps({ planName }) {
             </label>
           </div>
           <label>{T('next.form_time')}<input value={form.preferred_time} onChange={set('preferred_time')} maxLength={250} placeholder={T('next.form_time_ph')} /></label>
-          <label>{T('next.form_notes')}<textarea rows={4} maxLength={2000} value={form.notes} onChange={set('notes')} /></label>
+          <label>{T('next.form_notes')}<textarea rows={4} maxLength={2000} value={form.notes} onChange={set('notes')} {...bad('notes')} />{err('notes')}</label>
           {error && <p className="error" role="alert">{error}</p>}
           <div className="actions">
             <button type="button" className="secondary" onClick={() => setOpen(false)}>{T('next.form_cancel')}</button>

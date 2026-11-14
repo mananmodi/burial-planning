@@ -15,6 +15,7 @@ export function AuthProvider({ children }) {
 
   const authenticate = async (mode, body) => {
     const r = await api(`/auth/${mode}`, { method: 'POST', body });
+    if (!r.token) return r; // sign-up: the account must be verified by email before logging in
     setToken(r.token);
     setUser(r.user);
     return r.user;

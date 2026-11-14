@@ -8,6 +8,7 @@ import { UI_TEXTS, UI_TEXT_DEFAULTS } from './ui-texts.js';
 import path from 'node:path';
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import crypto from 'node:crypto';
 import { init, q, one, tx } from './db.js';
 import { validateProfile, validateContact, displayName } from './profile.js';
 
@@ -27,6 +28,12 @@ const wrap = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).cat
 const publicUser = (u) => ({ id: u.id, name: u.name, email: u.email, role: u.role });
 const sign = (u) => jwt.sign({ id: u.id, role: u.role }, SECRET, { expiresIn: '7d' });
 const bad = (msg, status = 400) => Object.assign(new Error(msg), { status });
+// 400 with per-field messages, so the browser can show each message beside its field
+const invalid = (fields, msg) => Object.assign(bad(msg || Object.values(fields)[0]), { fields });
+const passwordError = (p) => (p.length < 8 ? 'Password must be at least 8 characters'
+  : p.length > 72 ? 'Password must be 72 characters or fewer'
+  : !/[a-z]/.test(p) || !/[A-Z]/.test(p) || !/\d/.test(p) ? 'Password must include an uppercase letter, a lowercase letter and a number' : '');
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 
 const auth = wrap(async (req, res, next) => {
   let user;
@@ -58,29 +65,123 @@ app.get('/api/pages/:slug', wrap(async (req, res) => {
 
 app.post('/api/contact', wrap(async (req, res) => {
   const { errors, data } = validateContact(req.body);
-  if (Object.keys(errors).length) throw Object.assign(bad(Object.values(errors)[0]), { fields: errors });
+  if (Object.keys(errors).length) throw invalid(errors);
   await q('INSERT INTO contact_messages (name,phone,email,message) VALUES (?,?,?,?)', [data.name, data.phone, data.email, data.message]);
   res.json({ ok: true });
 }));
 
-// ---------- auth ----------
+// ---------- auth: math captcha, sign up with email verification, log in ----------
+// The captcha is stateless: the token is signed and holds a hash of the answer. Each token can be used once.
+const usedCaptchas = new Map();
+app.get('/api/auth/captcha', (req, res) => {
+  const a = 1 + Math.floor(Math.random() * 9);
+  const b = 1 + Math.floor(Math.random() * 9);
+  const op = ['+', '-', '×'][Math.floor(Math.random() * 3)];
+  const [x, y] = op === '-' && b > a ? [b, a] : [a, b];
+  const answer = op === '+' ? x + y : op === '-' ? x - y : x * y;
+  const jti = crypto.randomBytes(8).toString('hex');
+  const h = crypto.createHmac('sha256', SECRET).update(`${jti}:${answer}`).digest('hex');
+  res.set('Cache-Control', 'no-store').json({ question: `${x} ${op} ${y}`, token: jwt.sign({ jti, h, c: 1 }, SECRET, { expiresIn: '10m' }) });
+});
+function checkCaptcha(body) {
+  const fail = (m) => { throw invalid({ captcha: m }); };
+  const answer = String(body?.captcha_answer ?? '').trim();
+  if (!answer) fail('Please solve the math question');
+  let p;
+  try { p = jwt.verify(String(body?.captcha_token || ''), SECRET); } catch { return fail('The math question expired. Please try the new one.'); }
+  if (!p.c || usedCaptchas.has(p.jti)) return fail('The math question expired. Please try the new one.');
+  for (const [k, t] of usedCaptchas) if (t < Date.now()) usedCaptchas.delete(k);
+  usedCaptchas.set(p.jti, Date.now() + 11 * 60 * 1000); // used once, right or wrong
+  const ok = /^-?\d+$/.test(answer) && crypto.createHmac('sha256', SECRET).update(`${p.jti}:${+answer}`).digest('hex') === p.h;
+  if (!ok) fail('That answer is not correct. Please try the new question.');
+}
+
+// A fresh verification link is created and emailed. Only a hash of the token is stored.
+async function sendVerification(user, req) {
+  const token = crypto.randomBytes(32).toString('hex');
+  await q('UPDATE users SET verify_token_hash=?, verify_expires=DATE_ADD(NOW(), INTERVAL 24 HOUR), verify_sent_at=NOW() WHERE id=?',
+    [crypto.createHash('sha256').update(token).digest('hex'), user.id]);
+  const base = process.env.PUBLIC_URL || req.headers.origin || `${req.protocol}://${req.get('host')}`;
+  const link = `${base.replace(/\/$/, '')}/verify-email?token=${token}`;
+  const site = await siteName();
+  try {
+    await sendMail({
+      to: user.email, subject: `Confirm your email - ${site}`,
+      text: `Hello ${user.name},\n\nPlease confirm your email address to finish creating your account:\n${link}\n\nThis link works for 24 hours. If you did not sign up, you can ignore this email.`,
+      html: `<p>Hello ${esc(user.name)},</p><p>Please confirm your email address to finish creating your account at ${esc(site)}.</p>
+        <p><a href="${link}" style="background:#780080;color:#fff;padding:10px 18px;border-radius:6px;text-decoration:none">Confirm my email</a></p>
+        <p>Or paste this link into your browser:<br>${link}</p><p>This link works for 24 hours. If you did not sign up, you can ignore this email.</p>`,
+    });
+    return { sent: true };
+  } catch (e) {
+    console.error(`Verification email to ${user.email} not sent (${e.code === 'NO_SMTP' ? 'email is not set up' : e.message}).`);
+    if (process.env.NODE_ENV !== 'production') console.log(`Verification link for ${user.email}: ${link}`);
+    // On a local computer without SMTP the link is returned so sign-up can still be tested.
+    return { sent: false, reason: e.code === 'NO_SMTP' ? 'not_configured' : 'failed', ...(process.env.NODE_ENV !== 'production' ? { dev_link: link } : {}) };
+  }
+}
+
 app.post('/api/auth/register', wrap(async (req, res) => {
   const { email, password } = req.body || {};
-  if (!email?.trim() || !password || password.length < 6) throw bad('Email and a password of 6+ characters are required');
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email.trim())) throw bad('Enter a valid email address');
-  const { errors, profile } = validateProfile(req.body);
-  if (Object.keys(errors).length) throw Object.assign(bad(Object.values(errors)[0]), { fields: errors });
+  const errors = {};
+  if (!String(email || '').trim()) errors.email = 'Email is required';
+  else if (!EMAIL_RE.test(email.trim()) || email.trim().length > 254) errors.email = 'Enter a valid email address';
+  if (!password) errors.password = 'Password is required';
+  else if (passwordError(password)) errors.password = passwordError(password);
+  if (!errors.password && password !== req.body.confirm_password) errors.confirm_password = req.body.confirm_password ? 'Passwords do not match' : 'Confirm your password';
+  const prof = validateProfile(req.body);
+  Object.assign(errors, prof.errors);
+  if (Object.keys(errors).length) throw invalid(errors, 'Please correct the highlighted fields.');
+  checkCaptcha(req.body);
   const e = email.trim().toLowerCase();
-  if (await one('SELECT 1 AS x FROM users WHERE email=?', [e])) throw bad('Email already registered', 409);
-  const r = await q('INSERT INTO users (name,email,password_hash,profile) VALUES (?,?,?,?)', [displayName(profile), e, bcrypt.hashSync(password, 10), JSON.stringify(profile)]);
-  const user = await one('SELECT * FROM users WHERE id=?', [r.insertId]);
-  res.json({ token: sign(user), user: publicUser(user) });
+  const existing = await one('SELECT * FROM users WHERE email=?', [e]);
+  if (existing && existing.email_verified) throw Object.assign(invalid({ email: 'This email is already registered. Please log in instead.' }), { status: 409 });
+  const hash = bcrypt.hashSync(password, 10);
+  let user;
+  if (existing) { // signed up before but never verified: replace the details and send a new link
+    await q('UPDATE users SET name=?, password_hash=?, profile=? WHERE id=?', [displayName(prof.profile), hash, JSON.stringify(prof.profile), existing.id]);
+    user = await one('SELECT * FROM users WHERE id=?', [existing.id]);
+  } else {
+    const r = await q('INSERT INTO users (name,email,password_hash,profile,email_verified) VALUES (?,?,?,?,0)', [displayName(prof.profile), e, hash, JSON.stringify(prof.profile)]);
+    user = await one('SELECT * FROM users WHERE id=?', [r.insertId]);
+  }
+  res.json({ needs_verification: true, email: e, ...(await sendVerification(user, req)) });
+}));
+
+app.post('/api/auth/verify-email', wrap(async (req, res) => {
+  const token = String(req.body?.token || '');
+  if (!/^[a-f0-9]{64}$/.test(token)) throw bad('This verification link is not valid.');
+  const hash = crypto.createHash('sha256').update(token).digest('hex');
+  const user = await one('SELECT * FROM users WHERE verify_token_hash=?', [hash]);
+  if (!user) throw bad('This verification link is not valid or has already been used.');
+  if (user.email_verified) return res.json({ ok: true, already: true });
+  if (!user.verify_expires || new Date(String(user.verify_expires).replace(' ', 'T')) < new Date()) throw bad('This verification link has expired. Log in to request a new one.', 410);
+  await q('UPDATE users SET email_verified=1, verify_token_hash=NULL, verify_expires=NULL WHERE id=?', [user.id]);
+  res.json({ ok: true });
+}));
+
+app.post('/api/auth/resend-verification', wrap(async (req, res) => {
+  const e = String(req.body?.email || '').trim().toLowerCase();
+  if (!EMAIL_RE.test(e)) throw invalid({ email: 'Enter a valid email address' });
+  checkCaptcha(req.body);
+  const user = await one('SELECT * FROM users WHERE email=?', [e]);
+  if (!user || user.email_verified) return res.json({ ok: true }); // do not reveal which emails exist
+  if (user.verify_sent_at && Date.now() - new Date(String(user.verify_sent_at).replace(' ', 'T')).getTime() < 60 * 1000)
+    throw bad('A link was just sent. Please wait a minute before asking for another.', 429);
+  res.json({ ok: true, ...(await sendVerification(user, req)) });
 }));
 
 app.post('/api/auth/login', wrap(async (req, res) => {
   const { email, password } = req.body || {};
-  const user = await one('SELECT * FROM users WHERE email=?', [(email || '').trim().toLowerCase()]);
-  if (!user || !bcrypt.compareSync(password || '', user.password_hash)) throw bad('Invalid email or password', 401);
+  const errors = {};
+  if (!String(email || '').trim()) errors.email = 'Email is required';
+  else if (!EMAIL_RE.test(String(email).trim())) errors.email = 'Enter a valid email address';
+  if (!password) errors.password = 'Password is required';
+  if (Object.keys(errors).length) throw invalid(errors, 'Please correct the highlighted fields.');
+  checkCaptcha(req.body);
+  const user = await one('SELECT * FROM users WHERE email=?', [email.trim().toLowerCase()]);
+  if (!user || !bcrypt.compareSync(password, user.password_hash)) throw bad('Invalid email or password', 401);
+  if (!user.email_verified) throw Object.assign(bad('Please verify your email address before logging in. Check your inbox for the link, or request a new one.', 403), { code: 'EMAIL_NOT_VERIFIED', email: user.email });
   res.json({ token: sign(user), user: publicUser(user) });
 }));
 
@@ -237,9 +338,13 @@ const customerFields = (b = {}, existing) => {
   const name = String(b.name ?? existing?.name ?? '').trim();
   const email = String(b.email ?? existing?.email ?? '').trim().toLowerCase();
   const role = b.role === 'admin' ? 'admin' : b.role === 'user' ? 'user' : existing?.role || 'user';
-  if (!name) throw bad('Name is required');
-  if (!/^\S+@\S+\.\S+$/.test(email)) throw bad('Please enter a valid email address');
-  if (b.password && String(b.password).length < 6) throw bad('Password must be at least 6 characters');
+  const errors = {};
+  if (!name) errors.name = 'Name is required';
+  else if (name.length > 255) errors.name = 'Name is too long';
+  if (!email) errors.email = 'Email is required';
+  else if (!EMAIL_RE.test(email)) errors.email = 'Enter a valid email address';
+  if (b.password && String(b.password).length < 6) errors.password = 'Password must be at least 6 characters';
+  if (Object.keys(errors).length) throw invalid(errors);
   return { name, email, role, password: b.password ? String(b.password) : '' };
 };
 
@@ -252,8 +357,8 @@ admin.get('/customers', wrap(async (req, res) => res.json(await q(`
 
 admin.post('/customers', wrap(async (req, res) => {
   const f = customerFields(req.body);
-  if (f.password.length < 6) throw bad('Password must be at least 6 characters');
-  if (await one('SELECT 1 AS x FROM users WHERE email=?', [f.email])) throw bad('That email is already registered', 409);
+  if (f.password.length < 6) throw invalid({ password: 'Password must be at least 6 characters' });
+  if (await one('SELECT 1 AS x FROM users WHERE email=?', [f.email])) throw Object.assign(invalid({ email: 'That email is already registered' }), { status: 409 });
   const r = await q('INSERT INTO users (name,email,password_hash,role) VALUES (?,?,?,?)', [f.name, f.email, bcrypt.hashSync(f.password, 10), f.role]);
   res.json({ id: r.insertId });
 }));
@@ -264,7 +369,7 @@ admin.put('/customers/:id', wrap(async (req, res) => {
   if (!cur) throw bad('Customer not found', 404);
   const f = customerFields(req.body, cur);
   if (id === req.user.id && f.role !== 'admin') throw bad('You cannot remove your own admin access');
-  if (await one('SELECT 1 AS x FROM users WHERE email=? AND id<>?', [f.email, id])) throw bad('That email is already registered', 409);
+  if (await one('SELECT 1 AS x FROM users WHERE email=? AND id<>?', [f.email, id])) throw Object.assign(invalid({ email: 'That email is already registered' }), { status: 409 });
   await q('UPDATE users SET name=?, email=?, role=? WHERE id=?', [f.name, f.email, f.role, id]);
   if (f.password) await q('UPDATE users SET password_hash=? WHERE id=?', [bcrypt.hashSync(f.password, 10), id]);
   res.json({ ok: true });
@@ -1063,7 +1168,8 @@ app.delete('/api/estimates/:id', auth, wrap(async (req, res) => {
 // email the current estimate (or a saved one) to the address the customer types
 app.post('/api/estimates/email', auth, wrap(async (req, res) => {
   const to = String(req.body?.to || '').trim();
-  if (!/^\S+@\S+\.\S+$/.test(to)) throw bad('Please enter a valid email address');
+  if (!to) throw invalid({ to: 'Enter an email address' });
+  if (!EMAIL_RE.test(to)) throw invalid({ to: 'Enter a valid email address' });
   let summary;
   if (req.body?.estimate_id) {
     const e = await one('SELECT summary FROM estimates WHERE id=? AND plan_id=?', [+req.body.estimate_id, req.plan.id]);
@@ -1160,7 +1266,8 @@ app.post('/api/consultations', auth, wrap(async (req, res) => {
   if (!review.confirmed_at) throw bad('Please confirm your arrangement first.');
   const b = req.body || {};
   const phone = String(b.phone || '').trim().slice(0, 60);
-  if (phone.replace(/\D/g, '').length < 7) throw bad('Please enter a phone number we can reach you on');
+  if (phone.replace(/\D/g, '').length < 7) throw invalid({ phone: 'Enter a phone number we can reach you on (at least 7 digits)' });
+  if (String(b.notes || '').length > 2000) throw invalid({ notes: 'Notes are too long (2000 characters maximum)' });
   const method = ['phone', 'text', 'email'].includes(b.contact_method) ? b.contact_method : 'phone';
   const when = String(b.preferred_time || '').trim().slice(0, 255);
   const notes = String(b.notes || '').trim().slice(0, 2000);
@@ -1283,7 +1390,7 @@ if (fs.existsSync(dist)) {
 
 app.use((err, req, res, next) => {
   if (!err.status) console.error(err);
-  res.status(err.status || 500).json({ error: err.status ? err.message : 'Server error', ...(err.fields ? { fields: err.fields } : {}) });
+  res.status(err.status || 500).json({ error: err.status ? err.message : 'Server error', ...(err.fields ? { fields: err.fields } : {}), ...(err.status && err.code ? { code: err.code, email: err.email } : {}) });
 });
 
 const port = process.env.PORT || 4000;

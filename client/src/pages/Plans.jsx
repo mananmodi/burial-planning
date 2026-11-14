@@ -17,6 +17,7 @@ export default function Plans() {
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
 
+  const [renameErr, setRenameErr] = useState('');
   const load = () => api('/plans').then(setPlans).catch((e) => setError(e.message));
   useEffect(() => { load(); }, []);
 
@@ -31,6 +32,8 @@ export default function Plans() {
   };
   const rename = (e) => {
     e.preventDefault();
+    if (!editing.name.trim()) { setRenameErr('Enter a name for the plan'); return; }
+    setRenameErr('');
     run(async () => { await api(`/plans/${editing.id}`, { method: 'PUT', body: { name: editing.name } }); setEditing(null); await load(); });
   };
   const duplicate = (p) => run(async () => { await api(`/plans/${p.id}/duplicate`, { method: 'POST' }); await load(); });
@@ -69,9 +72,10 @@ export default function Plans() {
             <header>
               {editing?.id === p.id ? (
                 <form className="rename" onSubmit={rename}>
-                  <input autoFocus value={editing.name} maxLength={120} aria-label="Plan name" onChange={(e) => setEditing({ ...editing, name: e.target.value })} />
+                  <input autoFocus value={editing.name} maxLength={120} aria-label="Plan name" onChange={(e) => { setEditing({ ...editing, name: e.target.value }); setRenameErr(''); }} {...(renameErr ? { 'aria-invalid': true } : {})} />
                   <button className="primary" disabled={busy}>{T('plans.btn_save')}</button>
-                  <button type="button" className="secondary" onClick={() => setEditing(null)}>{T('plans.btn_cancel')}</button>
+                  <button type="button" className="secondary" onClick={() => { setEditing(null); setRenameErr(''); }}>{T('plans.btn_cancel')}</button>
+                  {renameErr && <span className="field-err" role="alert">{renameErr}</span>}
                 </form>
               ) : <h2>{p.name}</h2>}
               <span className={'pill ' + (p.confirmed_at ? 'ok' : 'wip')}>{p.confirmed_at ? T('plans.status_confirmed') : p.items ? T('plans.status_progress') : T('plans.status_new')}</span>
