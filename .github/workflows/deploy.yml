@@ -1,0 +1,33 @@
+name: Deploy burial-planning to Hostinger VPS
+
+on:
+  push:
+    branches:
+      - main
+
+concurrency:
+  group: burial-planning-production
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Deploy latest commit on the VPS
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+          VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+        run: |
+          set -eu
+          install -m 700 -d "$HOME/.ssh"
+          printf '%s\n' "$VPS_SSH_KEY" > "$HOME/.ssh/vps_deploy_key"
+          chmod 600 "$HOME/.ssh/vps_deploy_key"
+          ssh-keyscan -H "$VPS_HOST" >> "$HOME/.ssh/known_hosts"
+          ssh -i "$HOME/.ssh/vps_deploy_key" \
+            -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes \
+            "$VPS_USER@$VPS_HOST" \
+            'cd /projects/gamez && git fetch origin main && git reset --hard origin/main && docker ps -q --filter label=com.docker.compose.project=gamez --filter label=com.docker.compose.service=app | xargs -r docker restart'
+          rm -f "$HOME/.ssh/vps_deploy_key"
