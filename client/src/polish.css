@@ -94,3 +94,26 @@ input[aria-invalid], select[aria-invalid], textarea[aria-invalid] { border-color
 .profile-dl dd { margin: 2px 0 0; font-weight: 600; }
 @media (max-width: 720px) { .reg-grid { grid-template-columns: 1fr 1fr; } .reg-grid .wide2 { grid-column: span 2; } }
 @media (max-width: 480px) { .reg-grid { grid-template-columns: 1fr; } .reg-grid .wide2 { grid-column: auto; } }
+
+/* Smooth page loading: content eases in; skeletons wait a beat (no flash on fast loads) then fade in. */
+@keyframes page-in { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: none; } }
+@keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
+main > *, .admin-content > * { animation: page-in .55s cubic-bezier(.22, .61, .36, 1) backwards; }
+.sk-page, .sk-full, .plan[aria-busy="true"] { animation: fade-in .4s ease .15s backwards; }
+main > .sk-page, main > .plan[aria-busy="true"], .admin-content > .sk-full { animation-name: fade-in; }
+.sk-band:nth-child(2) { animation-delay: .05s; }
+#root { animation: fade-in .5s ease backwards; }
+html { scroll-behavior: smooth; }
+.topbar, .footer { animation: fade-in .6s ease backwards; }
+@media (prefers-reduced-motion: reduce) {
+  main > *, .admin-content > *, .sk-page, .sk-full, #root, .topbar, .footer { animation: none; }
+  html { scroll-behavior: auto; }
+}
+
+/* No white gap while switching pages: the banner is always painted (never faded from transparent),
+   the skeleton's banner is brand-coloured, and only the content below the banner eases in. */
+main > .hero, main > .slider, main > .sk-page, main > .plan[aria-busy="true"] { animation: none; }
+.sk-hero { background: linear-gradient(135deg, var(--brand-dark) 0%, var(--brand) 60%, var(--brand-light) 100%); animation: none; height: 400px; border-bottom: 4px solid var(--gold); margin-bottom: 0; }
+.sk-hero + .sk-band { animation: none; }
+main > .content { animation: page-in .5s cubic-bezier(.22, .61, .36, 1) backwards; }
+@media (prefers-reduced-motion: reduce) { main > .content { animation: none; } }
