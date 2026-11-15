@@ -1,0 +1,45 @@
+services:
+  db:
+    image: mysql:8.0
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?MYSQL_ROOT_PASSWORD is required}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-burial_planning}
+      MYSQL_USER: ${MYSQL_USER:-burial_app}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?MYSQL_PASSWORD is required}
+    volumes:
+      - gamez2_db:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h localhost -u root -p$${MYSQL_ROOT_PASSWORD}"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      PORT: 4000
+      DB_HOST: db
+      DB_PORT: 3306
+      DB_NAME: ${MYSQL_DATABASE:-burial_planning}
+      DB_USER: ${MYSQL_USER:-burial_app}
+      DB_PASSWORD: ${MYSQL_PASSWORD:?MYSQL_PASSWORD is required}
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
+      ADMIN_EMAIL: ${ADMIN_EMAIL:?ADMIN_EMAIL is required}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?ADMIN_PASSWORD is required}
+    ports:
+      - "4000:4000"
+    volumes:
+      # Keep application-generated data outside the container image.
+      # This path matches the existing VPS data directory.
+      - /projects/gamez/appdata:/appdata
+
+volumes:
+  gamez2_db:
