@@ -49,7 +49,7 @@ main > .flow.plan { margin-top: 130px; }
 .cart-note { font: 13px/1.5 system-ui, sans-serif; color: var(--muted); margin: 10px 0 0; }
 .cart-close, .cart-bar { display: none; }
 
-.done-card { max-width: 780px; }
+.done-card { max-width: none; }
 
 @media (max-width: 1000px) {
   .flow.plan { padding: 0 16px; }
@@ -157,3 +157,14 @@ main > .flow.plan { margin-top: 130px; }
 .review-total .error { background: #fff; padding: 8px 12px; border-radius: 8px; }
 .cart-bar.hide { display: none !important; }
 @media (max-width: 1000px) { .review-total { position: static; margin-top: 16px; } .plan-main.review { padding-bottom: 0; } }
+
+/* Total stays pinned to the bottom of the cart while the item list scrolls, so it is always visible. */
+.plan-cart-in { padding-bottom: 0; }
+.plan-cart .cart tr.total td { position: sticky; bottom: 0; z-index: 1; background: var(--card); padding-bottom: 16px; box-shadow: 0 -6px 8px -6px rgba(42, 0, 48, .12); }
+
+/* Detail field (e.g. "Please tell us the location") sits directly under the selected option card */
+.opt-wrap { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.opt-wrap > .option { flex: 1; }
+.opt-wrap .detail-ask { padding: 14px 16px; background: var(--sel); border: 1px solid var(--accent); border-radius: 12px; animation: fade-in .25s ease; }
+.opt-wrap .detail-ask label { display: block; font: 600 15px system-ui, sans-serif; color: var(--accent); margin-bottom: 6px; }
+.opt-wrap .detail-ask input { width: 100%; box-sizing: border-box; }

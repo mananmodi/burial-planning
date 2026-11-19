@@ -10,6 +10,7 @@ import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import crypto from 'node:crypto';
 import { init, q, one, tx } from './db.js';
+import { suggestSeo } from './seo-defaults.js';
 import { validateProfile, validateContact, displayName } from './profile.js';
 
 try {
@@ -186,6 +187,44 @@ app.post('/api/auth/login', wrap(async (req, res) => {
 }));
 
 app.get('/api/me', auth, (req, res) => res.json({ user: publicUser(req.user) }));
+
+// ---------- the signed-in user's own account: edit profile, change password ----------
+app.get('/api/me/profile', auth, wrap(async (req, res) => {
+  const u = await one('SELECT * FROM users WHERE id=?', [req.user.id]);
+  let profile = null;
+  try { profile = u.profile ? JSON.parse(u.profile) : null; } catch { profile = null; }
+  res.json({ name: u.name, email: u.email, role: u.role, profile });
+}));
+
+app.put('/api/me/profile', auth, wrap(async (req, res) => {
+  const u = await one('SELECT * FROM users WHERE id=?', [req.user.id]);
+  if (!u.profile && u.role === 'admin') { // admin accounts have no sign-up profile: only the display name can change
+    const name = String(req.body?.name || '').trim().replace(/\s+/g, ' ');
+    if (!name || name.length > 100) throw invalid({ name: 'Enter your name (up to 100 characters)' }, 'Please correct the highlighted fields.');
+    await q('UPDATE users SET name=? WHERE id=?', [name, u.id]);
+    return res.json({ user: publicUser({ ...u, name }) });
+  }
+  const prof = validateProfile(req.body);
+  if (Object.keys(prof.errors).length) throw invalid(prof.errors, 'Please correct the highlighted fields.');
+  const name = displayName(prof.profile);
+  await q('UPDATE users SET name=?, profile=? WHERE id=?', [name, JSON.stringify(prof.profile), u.id]);
+  res.json({ user: publicUser({ ...u, name }) });
+}));
+
+app.post('/api/me/password', auth, wrap(async (req, res) => {
+  const { current_password: cur, password, confirm_password: conf } = req.body || {};
+  const errors = {};
+  const u = await one('SELECT * FROM users WHERE id=?', [req.user.id]);
+  if (!cur) errors.current_password = 'Enter your current password';
+  else if (!bcrypt.compareSync(String(cur), u.password_hash)) errors.current_password = 'Your current password is not correct';
+  if (!password) errors.password = 'Enter a new password';
+  else if (passwordError(password)) errors.password = passwordError(password);
+  else if (cur && password === cur) errors.password = 'Choose a password different from your current one';
+  if (!errors.password && password !== conf) errors.confirm_password = conf ? 'Passwords do not match' : 'Confirm your new password';
+  if (Object.keys(errors).length) throw invalid(errors, 'Please correct the highlighted fields.');
+  await q('UPDATE users SET password_hash=? WHERE id=?', [bcrypt.hashSync(password, 10), u.id]);
+  res.json({ ok: true });
+}));
 
 // ---------- visitor flow ----------
 async function loadQuestions(onlyActive) {
@@ -432,21 +471,26 @@ async function savePage(id, b = {}) {
   const slug = slugify(b.slug || b.title);
   if (!b.title?.trim() || !slug) throw bad('Title is required');
   const sections = (Array.isArray(b.sections) ? b.sections : [])
-    .map((s) => ({ heading: String(s.heading || '').trim(), body: String(s.body || ''), layout: String(s.layout || 'text'), image: String(s.image || '').trim(), icon: String(s.icon || '') }))
+    .map((s) => ({ heading: String(s.heading || '').trim(), body: String(s.body || ''), layout: String(s.layout || 'text'), image: String(s.image || '').trim(), icon: String(s.icon || ''), eyebrow: String(s.eyebrow || '').trim().slice(0, 60), link_label: String(s.link_label || '').trim().slice(0, 40) }))
     .filter((s) => s.heading || s.body.trim());
   const vals = [slug, b.title.trim(), (b.nav_group || '').trim(), +b.nav_order || 0, b.show_in_nav ? 1 : 0, b.published ? 1 : 0,
-    b.hero_title || '', b.hero_subtitle || '', JSON.stringify(sections), String(b.hero_image || '').trim()];
+    b.hero_title || '', b.hero_subtitle || '', JSON.stringify(sections), String(b.hero_image || '').trim(),
+    String(b.meta_title || '').trim().slice(0, 255), String(b.meta_keywords || '').trim().slice(0, 500), String(b.meta_description || '').trim().slice(0, 500)];
   try {
     if (id) {
-      await q('UPDATE pages SET slug=?,title=?,nav_group=?,nav_order=?,show_in_nav=?,published=?,hero_title=?,hero_subtitle=?,sections=?,hero_image=? WHERE id=?', [...vals, id]);
+      await q('UPDATE pages SET slug=?,title=?,nav_group=?,nav_order=?,show_in_nav=?,published=?,hero_title=?,hero_subtitle=?,sections=?,hero_image=?,meta_title=?,meta_keywords=?,meta_description=? WHERE id=?', [...vals, id]);
       return id;
     }
-    return (await q('INSERT INTO pages (slug,title,nav_group,nav_order,show_in_nav,published,hero_title,hero_subtitle,sections,hero_image) VALUES (?,?,?,?,?,?,?,?,?,?)', vals)).insertId;
+    return (await q('INSERT INTO pages (slug,title,nav_group,nav_order,show_in_nav,published,hero_title,hero_subtitle,sections,hero_image,meta_title,meta_keywords,meta_description) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)', vals)).insertId;
   } catch (e) {
     if (e.code === 'ER_DUP_ENTRY') throw bad('Another page already uses that URL');
     throw e;
   }
 }
+admin.post('/pages/suggest-seo', wrap(async (req, res) => {
+  const site = (await one("SELECT value FROM settings WHERE `key`='site_name'"))?.value || undefined;
+  res.json(suggestSeo(req.body || {}, site));
+}));
 admin.get('/pages', wrap(async (req, res) => res.json((await q('SELECT * FROM pages ORDER BY nav_group, nav_order, id')).map(parsePage))));
 admin.post('/pages', wrap(async (req, res) => res.json({ id: await savePage(null, req.body) })));
 admin.put('/pages/:id', wrap(async (req, res) => res.json({ id: await savePage(+req.params.id, req.body) })));
@@ -1381,11 +1425,110 @@ admin.put('/consultations/:id', wrap(async (req, res) => {
 }));
 admin.delete('/consultations/:id', wrap(async (req, res) => { await q('DELETE FROM consultations WHERE id=?', [+req.params.id]); res.json({ ok: true }); }));
 
+// ---------- uploaded images (Admin > Images): stored on disk, listed in the `media` table ----------
+const HERE = path.dirname(fileURLToPath(import.meta.url));
+const UPLOAD_DIR = process.env.UPLOAD_DIR || (fs.existsSync('/appdata') ? '/appdata/uploads' : path.join(HERE, 'uploads'));
+fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+app.use('/uploads', express.static(UPLOAD_DIR, { maxAge: '7d', index: false, setHeaders: (res) => res.setHeader('X-Content-Type-Options', 'nosniff') }));
+
+// the file type is decided from the file's own first bytes, never from its name or the browser's claim
+function sniffImage(b) {
+  if (b.length > 12 && b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff) return { mime: 'image/jpeg', ext: 'jpg' };
+  if (b.length > 12 && b.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))) return { mime: 'image/png', ext: 'png' };
+  if (b.length > 12 && b.subarray(0, 4).toString('latin1') === 'GIF8') return { mime: 'image/gif', ext: 'gif' };
+  if (b.length > 12 && b.subarray(0, 4).toString('latin1') === 'RIFF' && b.subarray(8, 12).toString('latin1') === 'WEBP') return { mime: 'image/webp', ext: 'webp' };
+  return null;
+}
+admin.post('/media', express.raw({ type: () => true, limit: '8mb' }), wrap(async (req, res) => {
+  const buf = req.body;
+  if (!Buffer.isBuffer(buf) || !buf.length) throw bad('No file received');
+  const kind = sniffImage(buf);
+  if (!kind) throw bad('Only JPG, PNG, GIF or WEBP images can be uploaded');
+  let original = 'image';
+  try { original = decodeURIComponent(String(req.headers['x-file-name'] || 'image')); } catch { /* keep default */ }
+  original = path.basename(original).replace(/[^\w .()-]/g, '').slice(0, 120) || 'image';
+  const filename = `${crypto.randomBytes(8).toString('hex')}.${kind.ext}`;
+  await fs.promises.writeFile(path.join(UPLOAD_DIR, filename), buf, { flag: 'wx' });
+  const url = `/uploads/${filename}`;
+  const r = await q('INSERT INTO media (filename,original_name,mime,size,url,uploaded_by) VALUES (?,?,?,?,?,?)', [filename, original, kind.mime, buf.length, url, req.user.id]);
+  res.json(await one('SELECT * FROM media WHERE id=?', [r.insertId]));
+}));
+admin.get('/media', wrap(async (req, res) => {
+  const uploaded = await q('SELECT id, original_name, mime, size, url, created_at FROM media ORDER BY id DESC');
+  // pictures that ship with the website (read-only, can be reused but not deleted)
+  const imgDir = [path.join(HERE, '../client/dist/images'), path.join(HERE, '../client/public/images')].find((d) => fs.existsSync(d));
+  const done = new Set((await q("SELECT source FROM media WHERE source<>''")).map((r) => r.source)); // already imported into the library
+  const builtin = imgDir ? fs.readdirSync(imgDir).filter((f) => /\.(jpe?g|png|gif|webp)$/i.test(f) && !done.has(`/images/${f}`)).sort().map((f) => ({ name: f, url: `/images/${f}` })) : [];
+  res.json({ uploaded, builtin });
+}));
+// Copies the pictures that ship with the website into the managed library (disk + `media` rows) and re-points every page,
+// section, service card and home-slider slide that used them, so all of them can then be replaced or deleted from the admin.
+admin.post('/media/import-existing', wrap(async (req, res) => {
+  const imgDir = [path.join(HERE, '../client/dist/images'), path.join(HERE, '../client/public/images')].find((d) => fs.existsSync(d));
+  if (!imgDir) throw bad('The website image folder was not found on the server', 404);
+  const files = fs.readdirSync(imgDir).filter((f) => /\.(jpe?g|png|gif|webp)$/i.test(f)).sort();
+  const map = {}; let imported = 0;
+  for (const f of files) {
+    const src = `/images/${f}`;
+    const have = await one('SELECT url FROM media WHERE source=?', [src]);
+    if (have) { map[src] = have.url; continue; }
+    const buf = await fs.promises.readFile(path.join(imgDir, f));
+    const kind = sniffImage(buf);
+    if (!kind) continue;
+    const filename = `${crypto.randomBytes(8).toString('hex')}.${kind.ext}`;
+    await fs.promises.writeFile(path.join(UPLOAD_DIR, filename), buf, { flag: 'wx' });
+    const url = `/uploads/${filename}`;
+    await q('INSERT INTO media (filename,original_name,mime,size,url,uploaded_by,source) VALUES (?,?,?,?,?,?,?)', [filename, f, kind.mime, buf.length, url, req.user.id, src]);
+    map[src] = url; imported += 1;
+  }
+  // longest names first so "slide-1.jpg" can never clip part of a longer name
+  const keys = Object.keys(map).sort((a, b) => b.length - a.length);
+  const swap = (text) => { let out = String(text ?? ''); for (const k of keys) out = out.split(k).join(map[k]); return out; };
+  let updated = 0;
+  for (const p of await q('SELECT id, hero_image, sections FROM pages')) {
+    const h = swap(p.hero_image); const sct = swap(p.sections);
+    if (h !== p.hero_image || sct !== p.sections) { await q('UPDATE pages SET hero_image=?, sections=? WHERE id=?', [h, sct, p.id]); updated += 1; }
+  }
+  const slides = await one("SELECT value FROM settings WHERE `key`='home_slides'");
+  if (slides && swap(slides.value) !== slides.value) { await q("UPDATE settings SET value=? WHERE `key`='home_slides'", [swap(slides.value)]); updated += 1; }
+  res.json({ imported, total: files.length, updated });
+}));
+admin.delete('/media/:id', wrap(async (req, res) => {
+  const m = await one('SELECT * FROM media WHERE id=?', [+req.params.id]);
+  if (!m) throw bad('Image not found', 404);
+  await q('DELETE FROM media WHERE id=?', [m.id]);
+  await fs.promises.unlink(path.join(UPLOAD_DIR, path.basename(m.filename))).catch(() => {});
+  res.json({ ok: true });
+}));
+
 // ---------- static client (production) ----------
-const dist = path.join(path.dirname(fileURLToPath(import.meta.url)), '../client/dist');
+const dist = path.join(HERE, '../client/dist');
 if (fs.existsSync(dist)) {
-  app.use(express.static(dist));
-  app.get(/^\/(?!api).*/, (req, res) => res.sendFile(path.join(dist, 'index.html')));
+  app.use(express.static(dist, { index: false }));
+  const indexHtml = fs.readFileSync(path.join(dist, 'index.html'), 'utf8');
+  const esc = (v) => String(v ?? '').replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  // The page's meta title / description / keywords are written into the HTML itself so search engines and link previews see them.
+  app.get(/^\/(?!api|uploads).*/, wrap(async (req, res) => {
+    const slug = req.path === '/' ? 'home' : req.path.replace(/^\/|\/$/g, '');
+    const pg = /^[a-z0-9-]+$/.test(slug) ? await one('SELECT * FROM pages WHERE slug=? AND published=1', [slug]) : null;
+    res.set('Cache-Control', 'no-cache');
+    if (!pg) return res.type('html').send(indexHtml);
+    const site = (await one("SELECT value FROM settings WHERE `key`='site_name'"))?.value || '';
+    const title = pg.meta_title || `${pg.title} | ${site}`;
+    const base = (process.env.PUBLIC_URL || `${req.protocol}://${req.get('host')}`).replace(/\/$/, '');
+    const img = pg.hero_image ? (/^https?:/.test(pg.hero_image) ? pg.hero_image : base + pg.hero_image) : '';
+    const tags = [
+      pg.meta_description && `<meta name="description" content="${esc(pg.meta_description)}" />`,
+      pg.meta_keywords && `<meta name="keywords" content="${esc(pg.meta_keywords)}" />`,
+      `<meta property="og:type" content="website" />`, `<meta property="og:site_name" content="${esc(site)}" />`,
+      `<meta property="og:title" content="${esc(title)}" />`,
+      pg.meta_description && `<meta property="og:description" content="${esc(pg.meta_description)}" />`,
+      `<meta property="og:url" content="${esc(base + (slug === 'home' ? '/' : '/' + slug))}" />`,
+      img && `<meta property="og:image" content="${esc(img)}" />`,
+      `<link rel="canonical" href="${esc(base + (slug === 'home' ? '/' : '/' + slug))}" />`,
+    ].filter(Boolean).join('\n    ');
+    res.type('html').send(indexHtml.replace(/<title>[\s\S]*?<\/title>/, `<title>${esc(title)}</title>`).replace('</head>', `    ${tags}\n  </head>`));
+  }));
 }
 
 app.use((err, req, res, next) => {

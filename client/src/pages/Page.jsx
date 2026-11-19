@@ -6,6 +6,7 @@ import { useAuth } from '../auth.jsx';
 import Slider from '../Slider.jsx';
 import SectionView from '../SectionView.jsx';
 import { validateContact, formatPhone } from '../profile.js';
+import { applyMeta, clearMeta } from '../seo.js';
 import { PageSkeleton } from '../Skeleton.jsx';
 
 function ContactForm() {
@@ -52,9 +53,10 @@ export default function Page({ slug: fixed }) {
 
   useEffect(() => {
     setPage(null); setError('');
-    api(`/pages/${slug}`).then((p) => { setPage(p); document.title = `${p.title} – ${s.site_name || 'Gámez & Sons'}`; })
+    api(`/pages/${slug}`).then((p) => { setPage(p); applyMeta({ title: p.meta_title || `${p.title} | ${s.site_name || 'Gámez & Sons'}`, description: p.meta_description, keywords: p.meta_keywords }); })
       .catch((e) => setError(e.message));
     window.scrollTo(0, 0);
+    return clearMeta;
   }, [slug]);
 
   if (error) return <div className="narrow center"><h1>Page not found</h1><p className="muted">{error}</p><Link to="/">Back to home</Link></div>;

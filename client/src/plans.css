@@ -153,3 +153,20 @@
 .text-default { margin: 4px 0 0; font: 12px system-ui, sans-serif; }
 .save-bar { position: sticky; bottom: 16px; z-index: 5; display: flex; align-items: center; justify-content: flex-end; gap: 12px; margin-top: 16px; padding: 12px 18px; background: var(--card); border: 2px solid var(--accent); border-radius: 14px; box-shadow: 0 10px 28px rgba(42, 0, 48, .25); font: 600 15px system-ui, sans-serif; }
 .save-bar span { margin-right: auto; }
+
+/* ---------- Thank-you page: full width, the two ways back highlighted at the top ---------- */
+.done-layout { width: 100%; max-width: none; margin: 0; padding: 0 clamp(16px, 4vw, 56px); box-sizing: border-box; }
+.done-layout .done-card { max-width: none; width: 100%; box-sizing: border-box; }
+.done-bar { display: flex; justify-content: flex-end; gap: 14px; flex-wrap: wrap; margin: -6px 0 18px; padding-bottom: 18px; border-bottom: 1px solid var(--line); }
+.top-go { display: inline-flex; align-items: center; justify-content: center; gap: 10px; min-width: 230px; padding: 16px 28px; border: 2px solid var(--accent); border-radius: 14px; background: var(--card); color: var(--accent); font: 700 18px system-ui, sans-serif; text-decoration: none; cursor: pointer; box-shadow: 0 6px 16px rgba(42, 0, 48, .12); transition: transform .15s, box-shadow .15s, background .15s; }
+.top-go:hover { transform: translateY(-2px); background: var(--sel); box-shadow: 0 10px 24px rgba(75, 0, 80, .22); }
+.top-go.primary-go { background: linear-gradient(135deg, var(--brand-dark), var(--brand)); border-color: var(--gold); color: #fff; box-shadow: 0 8px 22px rgba(75, 0, 80, .35); }
+.top-go.primary-go:hover { background: linear-gradient(135deg, var(--brand-dark), var(--brand)); filter: brightness(1.12); }
+.top-go.primary-go span { color: var(--gold-light); }
+.top-go:focus-visible { outline: 3px solid var(--gold); outline-offset: 3px; }
+@media (max-width: 560px) { .done-bar { flex-direction: column; } .top-go { min-width: 0; width: 100%; } }
+
+/* Buttons in the next-steps cards and the consultation form: standard size, not stretched across the card */
+.ns-card button, .consult-form .actions button { align-self: flex-start; width: auto; min-width: 0; padding: 10px 22px; font-size: 15px; }
+.consult-form .actions { justify-content: flex-end; }
+@media (max-width: 560px) { .ns-card button, .consult-form .actions button { align-self: stretch; } }

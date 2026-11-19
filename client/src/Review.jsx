@@ -4,6 +4,7 @@ import { api } from './api.js';
 import { money, useSite, useT } from './site.jsx';
 import { useAuth } from './auth.jsx';
 import NextSteps from './NextSteps.jsx';
+import { Loader } from './Skeleton.jsx';
 
 const when = (s) => (s ? new Date(String(s).replace(' ', 'T') + 'Z').toLocaleString() : '');
 const day = (s) => (s ? new Date(String(s).replace(' ', 'T') + 'Z') : new Date()).toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' });
@@ -123,14 +124,7 @@ export default function ReviewStep({ stepKeys, planName, onEdit, onBack, onConfi
   if (error && !data) return <p className="error plan-error">{error}</p>;
   if (!data) {
     return (
-      <>
-        <div className="plan-main" role="status" aria-busy="true" aria-label="Loading your summary">
-          <span className="sk" style={{ width: '60%', height: 38 }} />
-          <div style={{ height: 18 }} />
-          {[0, 1, 2, 3].map((i) => <div key={i} className="sk sk-card" />)}
-        </div>
-        <div className="review-total"><div className="sk sk-cart" style={{ height: 260 }} /></div>
-      </>
+      <Loader label="Loading your summary" />
     );
   }
 

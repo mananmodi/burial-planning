@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { api } from '../api.js';
 import { FullSkeleton } from '../Skeleton.jsx';
+import { ImageField } from '../MediaPicker.jsx';
 import { useSite } from '../site.jsx';
 import { parseSlides } from '../Slider.jsx';
 
@@ -42,7 +43,7 @@ export default function AdminSettings() {
         </label>
       ))}
       <h2>Home page slider</h2>
-      <p className="muted hint">Image: a path under <code>client/public/images</code> (e.g. <code>/images/slide-1.jpg</code>) or a full https:// URL.</p>
+      <p className="muted hint">Drag a picture onto a slide, or choose one from the image library.</p>
       {slides.map((s, i) => (
         <div className="section-edit" key={i}>
           <div className="row between">
@@ -53,7 +54,7 @@ export default function AdminSettings() {
               <button type="button" className="danger" onClick={() => setSlides(slides.filter((_, j) => j !== i))}>Remove</button>
             </span>
           </div>
-          <label>Image<input value={s.image || ''} onChange={(e) => setSlide(i, 'image', e.target.value)} /></label>
+          <ImageField label="Slide image" value={s.image || ''} onChange={(v) => setSlide(i, 'image', v)} />
           <label>Heading<input value={s.title || ''} onChange={(e) => setSlide(i, 'title', e.target.value)} /></label>
           <label>Subtitle<input value={s.subtitle || ''} onChange={(e) => setSlide(i, 'subtitle', e.target.value)} /></label>
           <div className="row">

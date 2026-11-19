@@ -22,5 +22,5 @@ export function AuthProvider({ children }) {
   };
   const logout = () => { setToken(null); setUser(null); };
 
-  return <Ctx.Provider value={{ user, ready, authenticate, logout }}>{children}</Ctx.Provider>;
+  return <Ctx.Provider value={{ user, ready, authenticate, logout, updateUser: setUser }}>{children}</Ctx.Provider>;
 }

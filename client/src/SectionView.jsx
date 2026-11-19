@@ -2,6 +2,7 @@ import React from 'react';
 import { Link } from 'react-router-dom';
 import Icon, { guessIcon } from './icons.jsx';
 import { RichText } from './site.jsx';
+import { parseServices } from './cards.js';
 
 // Card line formats (one bullet per card):
 //   Title                       Title: description
@@ -104,12 +105,44 @@ function Steps({ sec }) {
   );
 }
 
+// Photo cards (e.g. home "Our services"): everything - photo, icon, title, text, link, labels - comes from the section in the admin.
+function Services({ sec }) {
+  const { intro: lead, cards } = parseServices(sec.body);
+  return (
+    <div className="band-in">
+      <div className="cards-head services-head">
+        {sec.eyebrow && <span className="eyebrow">{sec.eyebrow}</span>}
+        {sec.heading && <h2>{sec.heading}</h2>}
+        <RichText text={lead} />
+      </div>
+      <div className="svc-grid">
+        {cards.map((c, i) => {
+          const body = (
+            <>
+              <span className="svc-photo" style={c.img ? { backgroundImage: `url(${c.img})` } : undefined}>
+                {c.icon && <span className="svc-badge"><Icon name={c.icon} size={24} /></span>}
+              </span>
+              <span className={'svc-body' + (c.icon ? '' : ' no-badge')}>
+                <h3>{c.title}</h3>
+                {c.desc && <p>{c.desc}</p>}
+                {c.link && <span className="svc-more">{sec.link_label || 'Learn more'} <span aria-hidden="true">&rarr;</span></span>}
+              </span>
+            </>
+          );
+          return c.link ? <Link key={i} to={c.link} className="svc-card">{body}</Link> : <div key={i} className="svc-card">{body}</div>;
+        })}
+      </div>
+    </div>
+  );
+}
+
 export default function SectionView({ sec }) {
   const layout = sec.layout || 'text';
 
   if (layout === 'accordion') return <section className="band band-cards"><Accordion sec={sec} /></section>;
   if (layout === 'steps') return <section className="band band-cards"><Steps sec={sec} /></section>;
 
+  if (layout === 'services') return <section className="band band-services"><Services sec={sec} /></section>;
   if (layout === 'cards') return <section className="band band-cards"><Cards sec={sec} /></section>;
 
   if (layout === 'banner' && sec.image)

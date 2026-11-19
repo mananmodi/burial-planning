@@ -138,6 +138,13 @@ export default function Flow({ planId }) {
   const [done, setDone] = useState(false);
   const [cartOpen, setCartOpen] = useState(false); // mobile cart sheet
 
+  // moving between planner steps (Next / Back / step circles) starts at the top of the new step
+  const firstStep = React.useRef(true);
+  useEffect(() => {
+    if (firstStep.current) { firstStep.current = false; return; }
+    window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
+  }, [step, done]);
+
   useEffect(() => {
     setPlan(planId); // every request below belongs to this plan
     Promise.all([api('/questions'), api('/answers/mine'), api('/packages'), api('/visitation'), api('/choices'), api('/ceremony'), api('/extras'), api('/qty'), api('/cart'), api(`/plans/${planId}`)])
@@ -190,34 +197,39 @@ export default function Flow({ planId }) {
   const visType = vis.types.find((t) => t.id === visPick);
   const steps = buildSteps({ qs: questions, pk: pkgs, v: vis, ch: screens, cer, ex: exScreens, qy: qtyScreens });
 
-  if (done)
+  if (done) {
+    const goSummary = () => { setDone(false); setStep(steps.length - 1); window.scrollTo(0, 0); };
     return (
-      <div className="card done-card center">
-        <span className="ns-check" aria-hidden="true">&#10003;</span>
-        <h1>{T('thanks.title')}</h1>
-        <p className="muted">{cart?.confirmed_at ? T('thanks.confirmed') : T('thanks.saved')}</p>
-        <dl className="done-summary" aria-label="Summary of your plan">
-          <div><dt>{T('thanks.plan_label')}</dt><dd>{planInfo?.name || T('thanks.default_plan')}</dd></div>
-          <div><dt>{T('thanks.selections_label')}</dt><dd>{(cart?.sections || []).filter((x) => x.lines.length).length}</dd></div>
-          <div className="total"><dt>{T('thanks.total_label')}</dt><dd>{money(cart?.total || 0)}</dd></div>
-        </dl>
-        {cart?.confirmed_at && <NextSteps planName={planInfo?.name} />}
-        <div className="done-nav">
-          <p className="done-nav-title">{T('thanks.change')}</p>
-          <nav className="stepper" aria-label="Go to a step">
-            {steps.map((st, i) => (
-              <button key={stepKey(st)} type="button" className={'stp done' + (st.kind === 'review' ? ' review-dot' : '')}
-                title={stepLabel(st, vis, pkgs, cer, T('review.step_label'))} aria-label={`Go to step ${i + 1}: ${stepLabel(st, vis, pkgs, cer, T('review.step_label'))}`}
-                onClick={() => { setDone(false); setStep(i); window.scrollTo(0, 0); }}>{i + 1}</button>
-            ))}
-          </nav>
-        </div>
-        <div className="done-actions">
-          <Link className="btn-go" to="/plans">{T('thanks.back_plans')}</Link>
-          <button type="button" className="btn-go strong" onClick={() => { setDone(false); setStep(steps.length - 1); window.scrollTo(0, 0); }}>{T('thanks.view_summary')}</button>
+      <div className="done-layout">
+        <div className="card done-card center">
+          <div className="done-bar">
+            <Link className="top-go" to="/plans"><span aria-hidden="true">&larr;</span> {T('thanks.back_plans')}</Link>
+            <button type="button" className="top-go primary-go" onClick={goSummary}>{T('thanks.view_summary')} <span aria-hidden="true">&rarr;</span></button>
+          </div>
+          <span className="ns-check" aria-hidden="true">&#10003;</span>
+          <h1>{T('thanks.title')}</h1>
+          <p className="muted">{cart?.confirmed_at ? T('thanks.confirmed') : T('thanks.saved')}</p>
+          <dl className="done-summary" aria-label="Summary of your plan">
+            <div><dt>{T('thanks.plan_label')}</dt><dd>{planInfo?.name || T('thanks.default_plan')}</dd></div>
+            <div><dt>{T('thanks.selections_label')}</dt><dd>{(cart?.sections || []).filter((x) => x.lines.length).length}</dd></div>
+            <div className="total"><dt>{T('thanks.total_label')}</dt><dd>{money(cart?.total || 0)}</dd></div>
+          </dl>
+          {cart?.confirmed_at && <NextSteps planName={planInfo?.name} />}
+          <div className="done-nav">
+            <p className="done-nav-title">{T('thanks.change')}</p>
+            <nav className="stepper" aria-label="Go to a step">
+              {steps.map((st, i) => (
+                <button key={stepKey(st)} type="button" className={'stp done' + (st.kind === 'review' ? ' review-dot' : '')}
+                  title={stepLabel(st, vis, pkgs, cer, T('review.step_label'))} aria-label={`Go to step ${i + 1}: ${stepLabel(st, vis, pkgs, cer, T('review.step_label'))}`}
+                  onClick={() => { setDone(false); setStep(i); window.scrollTo(0, 0); }}>{i + 1}</button>
+              ))}
+            </nav>
+          </div>
         </div>
       </div>
     );
+  }
+
 
   const cur = steps[Math.min(step, steps.length - 1)];
   const isLast = step + 1 >= steps.length;
@@ -520,7 +532,8 @@ export default function Flow({ planId }) {
       </button>
     )),
     choice: () => cur.screen.options.map((o) => (
-      <button key={o.id} type="button" className={'option' + (choicePick[cur.screen.id] === o.id ? ' selected' : '')}
+      <div key={o.id} className="opt-wrap">
+      <button type="button" className={'option' + (choicePick[cur.screen.id] === o.id ? ' selected' : '')}
         role="radio" aria-checked={choicePick[cur.screen.id] === o.id}
         onClick={() => { setError(''); setChoicePick({ ...choicePick, [cur.screen.id]: o.id }); }}>
         <strong>{o.name}</strong>
@@ -534,6 +547,15 @@ export default function Flow({ planId }) {
         )}
         <span className="price">{money(o.fee)}</span>
       </button>
+      {o.ask_detail && choicePick[cur.screen.id] === o.id && (
+        <div className="detail-ask">
+          <label htmlFor="choice-detail">{o.detail_label || o.name}</label>
+          <input id="choice-detail" value={choiceDetail[cur.screen.id] || ''} maxLength={500} required autoFocus
+            placeholder={o.detail_label || ''}
+            onChange={(e) => { setError(''); setChoiceDetail({ ...choiceDetail, [cur.screen.id]: e.target.value }); }} />
+        </div>
+      )}
+      </div>
     )),
   };
 
@@ -598,14 +620,6 @@ export default function Flow({ planId }) {
           ) : (
             <div className={optsClass} role={cur.kind === 'extras' || cur.kind === 'qty' ? 'group' : 'radiogroup'} aria-labelledby="step-title">{cards[cur.kind]()}</div>
           )}
-          {cur.kind === 'choice' && chosenOpt?.ask_detail && (
-            <div className="followup detail-ask">
-              <label htmlFor="choice-detail">{chosenOpt.detail_label || chosenOpt.name}</label>
-              <input id="choice-detail" value={choiceDetail[cur.screen.id] || ''} maxLength={500} required autoFocus
-                onChange={(e) => { setError(''); setChoiceDetail({ ...choiceDetail, [cur.screen.id]: e.target.value }); }} />
-            </div>
-          )}
-
           {cur.kind === 'vis' && visType?.followup_title && (
             <div className="followup" role="group" aria-labelledby="followup-q">
               <h2 id="followup-q">{visType.followup_title}</h2>

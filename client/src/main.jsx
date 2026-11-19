@@ -17,6 +17,8 @@ import AdminConsultations from './pages/AdminConsultations.jsx';
 import AdminTexts from './pages/AdminTexts.jsx';
 import FundingResult from './pages/FundingResult.jsx';
 import Plans from './pages/Plans.jsx';
+import AdminMedia from './pages/AdminMedia.jsx';
+import { EditProfile, ChangePassword } from './pages/Account.jsx';
 import AdminPages from './pages/AdminPages.jsx';
 import AdminSettings from './pages/AdminSettings.jsx';
 import AdminMessages from './pages/AdminMessages.jsx';
@@ -62,6 +64,39 @@ function SiteNav() {
   );
 }
 
+// "Welcome, Name" with a drop-down: my plans, edit profile, change password, (admin), log out.
+function UserMenu({ user, T, onLogout }) {
+  const [open, setOpen] = React.useState(false);
+  const ref = React.useRef(null);
+  const loc = useLocation();
+  React.useEffect(() => setOpen(false), [loc.pathname]);
+  React.useEffect(() => {
+    if (!open) return;
+    const away = (e) => { if (!ref.current?.contains(e.target)) setOpen(false); };
+    const esc = (e) => { if (e.key === 'Escape') { setOpen(false); ref.current?.querySelector('.ub-trigger')?.focus(); } };
+    document.addEventListener('mousedown', away); document.addEventListener('keydown', esc);
+    return () => { document.removeEventListener('mousedown', away); document.removeEventListener('keydown', esc); };
+  }, [open]);
+  return (
+    <div className="ub-menu" ref={ref}>
+      <button type="button" className="ub-trigger" aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen(!open)}>
+        <span className="ub-ico"><Icon name="user" size={16} /></span>
+        <span className="ub-name">Welcome, <strong>{user.name}</strong></span>
+        <span className="ub-caret" aria-hidden="true">&#9662;</span>
+      </button>
+      {open && (
+        <ul className="ub-drop" role="menu">
+          <li role="none"><Link role="menuitem" to="/plans"><Icon name="file" size={16} />My plans</Link></li>
+          <li role="none"><Link role="menuitem" to="/account/profile"><Icon name="user" size={16} />Edit profile</Link></li>
+          <li role="none"><Link role="menuitem" to="/account/password"><Icon name="shield" size={16} />Change password</Link></li>
+          {user.role === 'admin' && <li role="none"><Link role="menuitem" to="/admin"><Icon name="users" size={16} />{T('nav.admin')}</Link></li>}
+          <li role="none" className="ub-sep"><button type="button" role="menuitem" onClick={onLogout}><Icon name="logout" size={16} />{T('nav.logout')}</button></li>
+        </ul>
+      )}
+    </div>
+  );
+}
+
 function Header() {
   const T = useT();
   const { user, logout } = useAuth();
@@ -91,6 +126,14 @@ function Header() {
     return () => window.removeEventListener('scroll', on);
   }, []);
   return (
+    <>
+    {user && (
+      <div className="userbar">
+        <div className="userbar-in">
+          <UserMenu user={user} T={T} onLogout={() => { logout(); nav('/'); }} />
+        </div>
+      </div>
+    )}
     <header ref={headerRef} className={'topbar' + (scrolled ? ' scrolled' : '') + (hidden ? ' hide' : '')}>
       <Link to="/" className="brand" aria-label="Gámez & Sons home"><Logo height="var(--logo-h)" /></Link>
       <button className="burger secondary" aria-label="Menu" aria-expanded={open} onClick={() => setOpen(!open)}>☰</button>
@@ -98,15 +141,11 @@ function Header() {
         <SiteNav />
         <div className="account">
           {settings.phone && <a className="call" href={tel(settings.phone)}>{T('nav.call', { phone: settings.phone })}</a>}
-          {user
-            ? <>
-                {user.role === 'admin' && <Link to="/admin">{T('nav.admin')}</Link>}
-                <button className="link" onClick={() => { logout(); nav('/'); }}>{T('nav.logout')}</button>
-              </>
-            : <Link to="/login" className="login-btn" title={T('nav.login_tip')}>{T('nav.login')}</Link>}
+          {!user && <Link to="/login" className="login-btn" title={T('nav.login_tip')}>{T('nav.login')}</Link>}
         </div>
       </div>
     </header>
+    </>
   );
 }
 
@@ -184,7 +223,7 @@ function Footer() {
   );
 }
 
-const FIXED_TITLES = { '/admin/pages': 'Pages', '/admin/settings': 'Site settings', '/admin/messages': 'Messages', '/admin/email': 'Email settings', '/admin/stripe': 'Stripe payments', '/admin/consultations': 'Consultation requests', '/admin/texts': 'Site texts' };
+const FIXED_TITLES = { '/admin/pages': 'Pages', '/admin/settings': 'Site settings', '/admin/messages': 'Messages', '/admin/email': 'Email settings', '/admin/stripe': 'Stripe payments', '/admin/consultations': 'Consultation requests', '/admin/texts': 'Site texts', '/admin/media': 'Images' };
 
 function AdminLayout({ children }) {
   const { user, logout } = useAuth();
@@ -227,6 +266,7 @@ function AdminLayout({ children }) {
             <h2>Website</h2>
             <NavLink to="/admin/pages"><Icon name="file" size={18} />Pages</NavLink>
             <NavLink to="/admin/settings"><Icon name="shield" size={18} />Site settings</NavLink>
+            <NavLink to="/admin/media"><Icon name="image" size={18} />Images</NavLink>
             <NavLink to="/admin/texts"><Icon name="book" size={18} />Site texts</NavLink>
             <NavLink to="/admin/messages"><Icon name="phone" size={18} />Messages</NavLink>
             <NavLink to="/admin/email"><Icon name="file" size={18} />Email settings</NavLink>
@@ -266,6 +306,16 @@ function Guard({ admin, fallback, children }) {
   return admin ? <AdminLayout>{children}</AdminLayout> : children;
 }
 
+// Every link / route change starts at the top of the new page (jump, not a long smooth scroll), unless it targets a #section.
+function ScrollToTop() {
+  const { pathname, search, hash } = useLocation();
+  React.useEffect(() => {
+    if (hash) { document.getElementById(hash.slice(1))?.scrollIntoView(); return; }
+    window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
+  }, [pathname, search, hash]);
+  return null;
+}
+
 // Public pages get the site header/footer; /admin gets its own dashboard layout.
 function Frame({ children }) {
   const inAdmin = useLocation().pathname.startsWith('/admin');
@@ -276,11 +326,14 @@ createRoot(document.getElementById('root')).render(
   <BrowserRouter>
     <AuthProvider>
       <SiteProvider>
+        <ScrollToTop />
         <Frame>
           <Routes>
             <Route path="/" element={<Page slug="home" />} />
             <Route path="/login" element={<Login />} />
             <Route path="/verify-email" element={<VerifyEmail />} />
+            <Route path="/account/profile" element={<Guard><EditProfile /></Guard>} />
+            <Route path="/account/password" element={<Guard><ChangePassword /></Guard>} />
             <Route path="/plans" element={<Guard><Plans /></Guard>} />
             <Route path="/plan/:planId" element={<Guard fallback={<PlanSkeleton />}><PlanRoute /></Guard>} />
             <Route path="/plan" element={<Navigate to="/plans" replace />} />
@@ -299,6 +352,7 @@ createRoot(document.getElementById('root')).render(
             <Route path="/admin/customers" element={<Guard admin><AdminCustomers /></Guard>} />
             <Route path="/admin/consultations" element={<Guard admin><AdminConsultations /></Guard>} />
             <Route path="/admin/email" element={<Guard admin><AdminEmail /></Guard>} />
+            <Route path="/admin/media" element={<Guard admin><AdminMedia /></Guard>} />
             <Route path="/admin/texts" element={<Guard admin><AdminTexts /></Guard>} />
             <Route path="/admin/stripe" element={<Guard admin><AdminStripe /></Guard>} />
             <Route path="/funding/success" element={<Guard><FundingResult /></Guard>} />

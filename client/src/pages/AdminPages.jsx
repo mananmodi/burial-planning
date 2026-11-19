@@ -2,8 +2,54 @@ import React, { useEffect, useState } from 'react';
 import { api } from '../api.js';
 import { useSite } from '../site.jsx';
 import Icon, { ICON_NAMES } from '../icons.jsx';
+import { ImageField } from '../MediaPicker.jsx';
+import { parseServices, serializeServices } from '../cards.js';
 
-const blank = () => ({ title: '', slug: '', nav_group: '', nav_order: 0, show_in_nav: true, published: true, hero_title: '', hero_subtitle: '', hero_image: '', sections: [{ heading: '', body: '' }] });
+const blank = () => ({ title: '', slug: '', nav_group: '', nav_order: 0, show_in_nav: true, published: true, hero_title: '', hero_subtitle: '', hero_image: '', meta_title: '', meta_keywords: '', meta_description: '', sections: [{ heading: '', body: '' }] });
+
+function ServicesEditor({ sec, onChange }) {
+  const { intro, cards } = parseServices(sec.body);
+  const write = (i2, c2) => onChange('body', serializeServices(i2, c2));
+  const setCard = (i, k, v) => write(intro, cards.map((c, j) => (j === i ? { ...c, [k]: v } : c)));
+  const moveCard = (i, d) => { const c = [...cards]; const j = i + d; if (j < 0 || j >= c.length) return; [c[i], c[j]] = [c[j], c[i]]; write(intro, c); };
+  return (
+    <div className="svc-edit">
+      <div className="row">
+        <label>Small label above the heading<input value={sec.eyebrow || ''} onChange={(e) => onChange('eyebrow', e.target.value)} placeholder="What we offer" /></label>
+        <label>Link text on each card<input value={sec.link_label || ''} onChange={(e) => onChange('link_label', e.target.value)} placeholder="Learn more" /></label>
+      </div>
+      <label>Intro text under the heading<textarea rows={2} value={intro} onChange={(e) => write(e.target.value, cards)} /></label>
+      {cards.map((c, i) => (
+        <fieldset className="svc-card-edit" key={i}>
+          <legend>Card {i + 1}</legend>
+          <div className="row">
+            <label>Title<input value={c.title} onChange={(e) => setCard(i, 'title', e.target.value)} /></label>
+            <label>Links to page (e.g. /cremation-services)<input value={c.link} onChange={(e) => setCard(i, 'link', e.target.value)} /></label>
+          </div>
+          <label>Description<input value={c.desc} onChange={(e) => setCard(i, 'desc', e.target.value)} /></label>
+          <div className="row">
+            <ImageField label="Card photo" value={c.img} onChange={(v) => setCard(i, 'img', v)} />
+            <label>Icon
+              <select value={c.icon} onChange={(e) => setCard(i, 'icon', e.target.value)}>
+                <option value="">None</option>
+                {ICON_NAMES.map((n) => <option key={n} value={n}>{n}</option>)}
+              </select>
+            </label>
+          </div>
+          <div className="row between">
+            <span />
+            <span className="nowrap">
+              <button type="button" className="secondary" onClick={() => moveCard(i, -1)} aria-label="Move card up">↑</button>{' '}
+              <button type="button" className="secondary" onClick={() => moveCard(i, 1)} aria-label="Move card down">↓</button>{' '}
+              <button type="button" className="danger" onClick={() => write(intro, cards.filter((_, j) => j !== i))}>Remove card</button>
+            </span>
+          </div>
+        </fieldset>
+      ))}
+      <button type="button" className="secondary" onClick={() => write(intro, [...cards, { icon: 'star', img: '', title: 'New service', link: '', desc: '' }])}>+ Add card</button>
+    </div>
+  );
+}
 
 function Editor({ page, groups, onSave, onCancel }) {
   const [f, setF] = useState(page);
@@ -22,6 +68,12 @@ function Editor({ page, groups, onSave, onCancel }) {
       onSave();
     } catch (e) { setError(e.message); }
   };
+  const suggest = async () => {
+    try {
+      const d = await api('/admin/pages/suggest-seo', { method: 'POST', body: f });
+      setF({ ...f, meta_title: f.meta_title || d.title, meta_keywords: f.meta_keywords || d.keywords, meta_description: f.meta_description || d.description });
+    } catch (e) { setError(e.message); }
+  };
   const isHome = f.slug === 'home';
   return (
     <div className="card editor">
@@ -34,8 +86,22 @@ function Editor({ page, groups, onSave, onCancel }) {
       </div>
       <label>Banner heading<input value={f.hero_title} onChange={set('hero_title')} /></label>
       <label>Banner subtitle<textarea rows={2} value={f.hero_subtitle} onChange={set('hero_subtitle')} /></label>
-      <label>Banner picture (/images/... or https://..., blank = purple banner)<input value={f.hero_image || ''} onChange={set('hero_image')} placeholder="/images/about.jpg" /></label>
-      {f.hero_image && <img className="thumb-wide" src={f.hero_image} alt="Banner preview" />}
+      <ImageField label="Banner picture (blank = purple banner)" value={f.hero_image || ''} onChange={(v) => setF({ ...f, hero_image: v })} />
+      <fieldset className="seo-box">
+        <legend>Search engine details (SEO)</legend>
+        <p className="muted hint">Shown in Google results and when the page is shared. Every page should have its own.</p>
+        <label>Meta title <small className={'cnt' + ((f.meta_title || '').length > 60 ? ' over' : '')}>{(f.meta_title || '').length}/60</small>
+          <input value={f.meta_title || ''} onChange={set('meta_title')} maxLength={255} />
+        </label>
+        <label>Meta description <small className={'cnt' + ((f.meta_description || '').length > 160 ? ' over' : '')}>{(f.meta_description || '').length}/160</small>
+          <textarea rows={3} value={f.meta_description || ''} onChange={set('meta_description')} maxLength={500} />
+        </label>
+        <label>Meta keywords (separate with commas)
+          <input value={f.meta_keywords || ''} onChange={set('meta_keywords')} maxLength={500} />
+        </label>
+        <button type="button" className="secondary" onClick={suggest}>Suggest from this page</button>
+        <span className="muted hint"> Fills only the empty boxes above.</span>
+      </fieldset>
       <div className="row">
         <label>Menu group (blank = top level)
           <input list="groups" value={f.nav_group} onChange={set('nav_group')} disabled={isHome} />
@@ -66,6 +132,7 @@ function Editor({ page, groups, onSave, onCancel }) {
                 <option value="split-reverse">Text + image right</option>
                 <option value="banner">Banner (image background)</option>
                 <option value="cards">Icon cards (one per bullet)</option>
+                <option value="services">Photo service cards (one per bullet)</option>
                 <option value="steps">Numbered steps with icons (one per bullet)</option>
                 <option value="accordion">Questions &amp; answers (### Question)</option>
               </select>
@@ -76,15 +143,16 @@ function Editor({ page, groups, onSave, onCancel }) {
                 {ICON_NAMES.map((n) => <option key={n} value={n}>{n}</option>)}
               </select>
             </label>
-            <label>Image (/images/... or https://...)<input value={s.image || ''} onChange={(e) => setSec(i, 'image', e.target.value)} /></label>
           </div>
           <div className="icon-pick" role="group" aria-label="Pick an icon">
             {ICON_NAMES.map((n) => (
               <button type="button" key={n} title={n} className={'icon-opt' + (s.icon === n ? ' on' : '')} onClick={() => setSec(i, 'icon', s.icon === n ? '' : n)}><Icon name={n} size={20} /></button>
             ))}
-            {s.image && <img className="thumb" src={s.image} alt="Section preview" />}
           </div>
-          <textarea rows={7} value={s.body} onChange={(e) => setSec(i, 'body', e.target.value)} />
+          {(['split', 'split-reverse', 'banner'].includes(s.layout)) && <ImageField label="Section image" value={s.image || ''} onChange={(v) => setSec(i, 'image', v)} />}
+          {s.layout === 'services'
+            ? <ServicesEditor sec={s} onChange={(k, v) => setSec(i, k, v)} />
+            : <textarea rows={7} value={s.body} onChange={(e) => setSec(i, 'body', e.target.value)} />}
         </div>
       ))}
       <button className="secondary" onClick={() => setF({ ...f, sections: [...f.sections, { heading: '', body: '' }] })}>+ Add section</button>

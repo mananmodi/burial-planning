@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
 import { api } from './api.js';
+import { Loader } from './Skeleton.jsx';
 
 const Ctx = createContext({ settings: {}, nav: [], texts: {}, reload: () => {} });
 export const useSite = () => useContext(Ctx);
@@ -10,7 +11,7 @@ export function SiteProvider({ children }) {
   const reload = useCallback(() => api('/site').then(setData).catch(() => {}).finally(() => setLoaded(true)), []);
   useEffect(() => { reload(); }, [reload]);
   // wait for the wording to arrive so visitors never see placeholder text flash
-  if (!loaded) return <div className="boot" aria-busy="true" />;
+  if (!loaded) return <Loader />;
   return <Ctx.Provider value={{ ...data, reload }}>{children}</Ctx.Provider>;
 }
 

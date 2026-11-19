@@ -24,3 +24,15 @@ export async function api(path, { method = 'GET', body } = {}) {
   if (method !== 'GET' && path.startsWith('/admin')) window.dispatchEvent(new Event('admin-nav-refresh'));
   return data;
 }
+
+// Uploads one image file (Admin > Images). Resolves to the saved row: { id, url, original_name, ... }.
+export async function uploadImage(file) {
+  const res = await fetch('/api/admin/media', {
+    method: 'POST',
+    headers: { 'Content-Type': file.type || 'application/octet-stream', 'X-File-Name': encodeURIComponent(file.name), ...(getToken() ? { Authorization: `Bearer ${getToken()}` } : {}) },
+    body: file,
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Upload failed');
+  return data;
+}

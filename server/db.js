@@ -1,4 +1,5 @@
 import './env.js';
+import { SEO_DEFAULTS, suggestSeo } from './seo-defaults.js';
 import mysql from 'mysql2/promise';
 import bcrypt from 'bcryptjs';
 import { iconicPages } from './inner-pages.js';
@@ -227,6 +228,9 @@ export async function init() {
   await addCol('users', 'verify_expires', 'DATETIME NULL');
   await addCol('users', 'verify_sent_at', 'DATETIME NULL');
   await addCol('pages', 'hero_image', "VARCHAR(500) NOT NULL DEFAULT ''");
+  await addCol('pages', 'meta_title', "VARCHAR(255) NOT NULL DEFAULT ''");
+  await addCol('pages', 'meta_keywords', "VARCHAR(500) NOT NULL DEFAULT ''");
+  await addCol('pages', 'meta_description', "VARCHAR(500) NOT NULL DEFAULT ''");
   if (!(await one("SELECT 1 AS x FROM settings WHERE `key`='seeded_iconic_pages'"))) {
     // Give the still-plain seeded inner pages icons and pictures; pages the admin already styled are left alone.
     for (const [slug, v] of Object.entries(iconicPages)) {
@@ -334,6 +338,42 @@ export async function init() {
   if (!(await one("SELECT 1 AS x FROM settings WHERE `key`='seeded_other_location_detail'"))) {
     await q("UPDATE choice_options o JOIN choice_screens s ON s.id=o.screen_id SET o.ask_detail=1, o.detail_label='Please tell us the location' WHERE s.name='Funeral Ceremony Location' AND o.name='Other Location'");
     await q("INSERT INTO settings (`key`,value) VALUES ('seeded_other_location_detail','1')");
+  }
+  if (!(await one("SELECT 1 AS x FROM settings WHERE `key`='seeded_home_services_layout'"))) {
+    const row = await one("SELECT sections FROM pages WHERE slug='home'");
+    if (row) {
+      const secs = JSON.parse(row.sections || '[]');
+      secs.forEach((x) => { if (x.heading === 'Our Services' && x.layout === 'cards') x.layout = 'services'; });
+      await q("UPDATE pages SET sections=? WHERE slug='home'", [JSON.stringify(secs)]);
+    }
+    await q("INSERT INTO settings (`key`,value) VALUES ('seeded_home_services_layout','1')");
+  }
+  if (!(await one("SELECT 1 AS x FROM settings WHERE `key`='seeded_home_services_images'"))) {
+    const IMG = { 'traditional-services': 'traditional', 'cremation-services': 'cremation', personalization: 'personal', 'veteran-services': 'veteran', 'planning-ahead': 'planning', 'immediate-need': 'contact' };
+    const row = await one("SELECT sections FROM pages WHERE slug='home'");
+    if (row) {
+      const secs = JSON.parse(row.sections || '[]');
+      secs.forEach((x) => {
+        if (x.layout !== 'services') return;
+        x.eyebrow = x.eyebrow ?? 'What we offer';
+        x.link_label = x.link_label ?? 'Learn more';
+        x.body = String(x.body || '').split('\n').map((l) => {
+          const m = l.match(/\]\(\/([\w-]+)\)/);
+          return l.startsWith('- ') && m && IMG[m[1]] && !l.includes('{img:') ? l.replace(/^(- (?:\{\w+\}\s*)?)/, `$1{img:/images/${IMG[m[1]]}.jpg} `) : l;
+        }).join('\n');
+      });
+      await q("UPDATE pages SET sections=? WHERE slug='home'", [JSON.stringify(secs)]);
+    }
+    await q("INSERT INTO settings (`key`,value) VALUES ('seeded_home_services_images','1')");
+  }
+  if (!(await one("SELECT 1 AS x FROM settings WHERE `key`='seeded_meta_defaults'"))) {
+    // standard meta title / keywords / description for every page that has none yet (never overwrites what the admin wrote)
+    const site = (await one("SELECT value FROM settings WHERE `key`='site_name'"))?.value || undefined;
+    for (const pg of await q('SELECT * FROM pages')) {
+      const d = SEO_DEFAULTS[pg.slug] || suggestSeo({ ...pg, sections: JSON.parse(pg.sections || '[]') }, site);
+      await q('UPDATE pages SET meta_title=IF(meta_title=\'\', ?, meta_title), meta_keywords=IF(meta_keywords=\'\', ?, meta_keywords), meta_description=IF(meta_description=\'\', ?, meta_description) WHERE id=?', [d.title, d.keywords, d.description, pg.id]);
+    }
+    await q("INSERT INTO settings (`key`,value) VALUES ('seeded_meta_defaults','1')");
   }
   // skippable: the customer may continue without choosing anything (Screen 8 is skippable by default)
   if (!(await one("SELECT 1 AS x FROM information_schema.columns WHERE table_schema=? AND table_name='choice_screens' AND column_name='skippable'", [DB_NAME]))) {
@@ -670,6 +710,17 @@ export async function init() {
     paid_at TIMESTAMP NULL,
     INDEX (plan_id)
   ) ENGINE=InnoDB`);
+  await q(`CREATE TABLE IF NOT EXISTS media (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    filename VARCHAR(80) NOT NULL UNIQUE,
+    original_name VARCHAR(255) NOT NULL DEFAULT '',
+    mime VARCHAR(60) NOT NULL,
+    size INT NOT NULL DEFAULT 0,
+    url VARCHAR(255) NOT NULL,
+    uploaded_by INT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+  ) ENGINE=InnoDB`);
+  await addCol('media', 'source', "VARCHAR(255) NOT NULL DEFAULT ''"); // original /images/... path when imported from the website's own pictures
   await q(`CREATE TABLE IF NOT EXISTS consultations (
     id INT AUTO_INCREMENT PRIMARY KEY,
     plan_id INT NULL,
