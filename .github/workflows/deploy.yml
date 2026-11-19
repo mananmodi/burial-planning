@@ -4,7 +4,9 @@ on:
   push:
     branches:
       - main
-
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  
 concurrency:
   group: burial-planning-production
   cancel-in-progress: true
@@ -15,7 +17,7 @@ jobs:
 
     steps:
       - name: Checkout main
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Upload application code
         uses: appleboy/scp-action@v1
