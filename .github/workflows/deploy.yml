@@ -1,13 +1,12 @@
-name: Deploy burial-planning to Hostinger VPS
+name: Deploy to Hostinger VPS
 
 on:
   push:
     branches:
       - main
-  workflow_dispatch:
 
 concurrency:
-  group: production-deploy
+  group: burial-planning-production
   cancel-in-progress: true
 
 jobs:
@@ -15,18 +14,42 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Deploy over SSH
-        uses: appleboy/ssh-action@v1.2.0
+      - name: Checkout main
+        uses: actions/checkout@v4
+
+      - name: Upload application code
+        uses: appleboy/scp-action@v1
         with:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
           port: ${{ secrets.VPS_PORT || 22 }}
-          script_stop: true
+          source: "client,server,package.json,package-lock.json,DB"
+          target: ${{ secrets.VPS_APP_DIR || '/projects/gamez' }}
+          overwrite: true
+
+      - name: Upload current pages and images once
+        uses: appleboy/scp-action@v1
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          port: ${{ secrets.VPS_PORT || 22 }}
+          source: "uploads"
+          target: ${{ secrets.VPS_APP_DIR || '/projects/gamez' }}
+          overwrite: false
+
+      - name: Rebuild and restart application
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          port: ${{ secrets.VPS_PORT || 22 }}
           script: |
             set -e
-            cd "${{ secrets.VPS_APP_DIR }}"
-            git fetch origin main
-            git reset --hard origin/main
-            docker compose up -d --build --remove-orphans
+
+            cd /docker/gamez2
+            docker compose up -d --build
+
             docker compose ps
