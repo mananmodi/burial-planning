@@ -20,24 +20,33 @@ jobs:
       - name: Checkout main
         uses: actions/checkout@v5
 
+      - name: Validate VPS SSH key
+        env:
+          VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+        run: |
+          test -n "$VPS_SSH_KEY"
+          printf '%s\n' "$VPS_SSH_KEY" > "$RUNNER_TEMP/vps_key"
+          chmod 600 "$RUNNER_TEMP/vps_key"
+          ssh-keygen -y -f "$RUNNER_TEMP/vps_key" > /dev/null
+
       - name: Upload application code
         uses: appleboy/scp-action@v1
         with:
           host: ${{ secrets.VPS_HOST }}
-          username: ${{ secrets.VPS_USER }}
+          username: root
           key: ${{ secrets.VPS_SSH_KEY }}
-          port: ${{ secrets.VPS_PORT || 22 }}
+          port: ${{ secrets.VPS_PORT || '22' }}
           source: "client,server,package.json,package-lock.json,DB"
           target: ${{ secrets.VPS_APP_DIR || '/projects/gamez' }}
           overwrite: true
 
-      - name: Upload uploads folder once
+      - name: Upload uploads folder
         uses: appleboy/scp-action@v1
         with:
           host: ${{ secrets.VPS_HOST }}
-          username: ${{ secrets.VPS_USER }}
+          username: root
           key: ${{ secrets.VPS_SSH_KEY }}
-          port: ${{ secrets.VPS_PORT || 22 }}
+          port: ${{ secrets.VPS_PORT || '22' }}
           source: "server/uploads"
           target: ${{ secrets.VPS_APP_DIR || '/projects/gamez' }}
           overwrite: false
@@ -46,13 +55,14 @@ jobs:
         uses: appleboy/ssh-action@v1
         with:
           host: ${{ secrets.VPS_HOST }}
-          username: ${{ secrets.VPS_USER }}
+          username: root
           key: ${{ secrets.VPS_SSH_KEY }}
-          port: ${{ secrets.VPS_PORT || 22 }}
+          port: ${{ secrets.VPS_PORT || '22' }}
           script: |
             set -e
 
             cd /docker/gamez2
+
             docker compose up -d --build
 
             if [ ! -f /docker/gamez2/.uploads-initialized ]; then
