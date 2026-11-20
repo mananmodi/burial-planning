@@ -4,9 +4,10 @@ on:
   push:
     branches:
       - main
+
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-  
+
 concurrency:
   group: burial-planning-production
   cancel-in-progress: true
@@ -30,14 +31,14 @@ jobs:
           target: ${{ secrets.VPS_APP_DIR || '/projects/gamez' }}
           overwrite: true
 
-      - name: Upload current pages and images once
+      - name: Upload uploads folder once
         uses: appleboy/scp-action@v1
         with:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
           port: ${{ secrets.VPS_PORT || 22 }}
-          source: "uploads"
+          source: "server/uploads"
           target: ${{ secrets.VPS_APP_DIR || '/projects/gamez' }}
           overwrite: false
 
@@ -53,5 +54,10 @@ jobs:
 
             cd /docker/gamez2
             docker compose up -d --build
+
+            if [ ! -f /docker/gamez2/.uploads-initialized ]; then
+              docker cp /projects/gamez/server/uploads/. gamez2-app-1:/appdata/uploads/
+              touch /docker/gamez2/.uploads-initialized
+            fi
 
             docker compose ps
